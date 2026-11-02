@@ -88,7 +88,48 @@ static BOOLEAN AmdGopParent(EFI_DEVICE_PATH_PROTOCOL *Path) {
 }
 #endif
 static BOOLEAN DisplayCheck(VOID) {
-#ifdef GU_HEADLESS_RESEARCH
+#if defined(GU_A5X1_NO_DISPLAY)
+  /* MUXless Optimus: the Radeon iGPU owns the console; the dGPU drives no
+   * display. Confirm no GOP is the dGPU or a child of it, so the dGPU's FLR
+   * cannot disturb the visible console. Compare each GOP's device path against
+   * the dGPU's own path prefix (bounded walks, no out-of-bounds reads). */
+  EFI_DEVICE_PATH_PROTOCOL *target=NULL;
+  if(!Gu.handle || EFI_ERROR(Gu.bs->HandleProtocol(Gu.handle,&PathGuid,(VOID **)&target)) || !target)return FALSE;
+  UINTN tbytes=0;
+  for(EFI_DEVICE_PATH_PROTOCOL *p=target;;) {
+    UINTN len=p->Length[0]|((UINTN)p->Length[1]<<8);
+    if(len<4 || tbytes>4096)return FALSE;
+    tbytes+=len;
+    if(p->Type==END_DEVICE_PATH_TYPE)break;
+    p=(VOID *)((UINT8 *)p+len);
+  }
+  if(tbytes<=4)return FALSE;
+  UINTN prefix=tbytes-4;
+  EFI_HANDLE *handles=NULL;UINTN count=0;
+  EFI_STATUS status=Gu.bs->LocateHandleBuffer(ByProtocol,&GopGuid,NULL,&count,&handles);
+  if(status==EFI_NOT_FOUND){GuLog("A5X1 no-display: no GOP present; dGPU drives nothing\n");return GuLogReady();}
+  if(EFI_ERROR(status) || !handles || !count || count>32){if(handles)GuFree(handles);return FALSE;}
+  BOOLEAN dgpu_display=FALSE;
+  for(UINTN i=0;i<count;i++) {
+    EFI_DEVICE_PATH_PROTOCOL *gp=NULL;
+    if(EFI_ERROR(Gu.bs->HandleProtocol(handles[i],&PathGuid,(VOID **)&gp)) || !gp)continue;
+    UINTN gbytes=0;BOOLEAN ok=FALSE;
+    for(EFI_DEVICE_PATH_PROTOCOL *q=gp;;) {
+      UINTN len=q->Length[0]|((UINTN)q->Length[1]<<8);
+      if(len<4 || gbytes>4096){gbytes=0;break;}
+      gbytes+=len;
+      if(q->Type==END_DEVICE_PATH_TYPE){ok=TRUE;break;}
+      q=(VOID *)((UINT8 *)q+len);
+    }
+    if(!ok || gbytes<prefix)continue;
+    const UINT8 *a=(const UINT8 *)target,*b=(const UINT8 *)gp;BOOLEAN same=TRUE;
+    for(UINTN k=0;k<prefix;k++)if(a[k]!=b[k]){same=FALSE;break;}
+    if(same){dgpu_display=TRUE;GuLog("A5X1: GOP %u routes through the dGPU; refusing\n",(unsigned)i);break;}
+  }
+  GuFree(handles);
+  GuLog("A5X1 no-display check: gops=%zu dgpu_drives_display=%u\n",(size_t)count,(unsigned)dgpu_display);
+  return !dgpu_display && GuLogReady();
+#elif defined(GU_HEADLESS_RESEARCH)
   return GuHeadlessCheck() && GuLogReady();
 #else
   EFI_HANDLE *handles=NULL;UINTN count=0,intel=0;BOOLEAN valid=TRUE;
