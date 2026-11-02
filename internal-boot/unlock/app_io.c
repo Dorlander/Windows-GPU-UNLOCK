@@ -59,7 +59,12 @@ BOOLEAN GuLogReady(VOID){return Report && !LogFault;}
 static BOOLEAN UsbPath(EFI_HANDLE Handle) {
   EFI_DEVICE_PATH_PROTOCOL *path=NULL;
   if(EFI_ERROR(Table->BootServices->HandleProtocol(Handle,&PathGuid,(VOID **)&path)) || !path)return FALSE;
-#if defined(GU_AUTOMATIC_BOOT) && !defined(GU_USB_MEDIA)
+#if defined(GU_A5X1_NO_DISPLAY)
+  /* Firmware USB boot paths vary on this laptop (the read-only probe needed the
+   * same relaxation). Assets are only read from, and the log only written to,
+   * this same boot volume, so accept it without requiring a USB messaging node. */
+  return TRUE;
+#elif defined(GU_AUTOMATIC_BOOT) && !defined(GU_USB_MEDIA)
   return GuPathIsPartition(path,&GuInternalPartition);
 #elif defined(GU_INTERNAL_BOOT) && !defined(GU_USB_MEDIA)
   return GuAllowedMediaPath(path,TRUE);
