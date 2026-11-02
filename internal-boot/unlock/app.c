@@ -233,6 +233,21 @@ static EFI_STATUS FindTarget(VOID) {
   }
   GuFree(handles);GuLog("PCI target matches=%zu status=%#llx\n",(size_t)found,(unsigned long long)status);
   if(EFI_ERROR(status) || found!=1)return EFI_UNSUPPORTED;
+#ifdef GU_A5X1_NO_DISPLAY
+  /* MUXless pre-OS: the dGPU boots with PCI COMMAND=0 (memory decode off), so
+   * GuCheckConfig's required MEM-on state and every BAR0/PROM read below would
+   * fail. Reversibly enable ONLY memory space (not bus master). The saved
+   * config then carries MEM on, and GuRestorePci restores this exact command
+   * across the FLR. BME stays off until the transaction enables it. */
+  if(Gu.pci && Gu.pci->Attributes) {
+    UINT64 supported=0;
+    EFI_STATUS sup=Gu.pci->Attributes(Gu.pci,EfiPciIoAttributeOperationSupported,0,&supported);
+    if(!EFI_ERROR(sup) && (supported&EFI_PCI_IO_ATTRIBUTE_MEMORY)) {
+      EFI_STATUS en=Gu.pci->Attributes(Gu.pci,EfiPciIoAttributeOperationEnable,EFI_PCI_IO_ATTRIBUTE_MEMORY,NULL);
+      GuLog("A5X1 enable memory decode: supported=%#llx status=%#llx\n",(unsigned long long)supported,(unsigned long long)en);
+    } else GuLog("A5X1 memory decode not enabled: supported_status=%#llx mask=%#llx\n",(unsigned long long)sup,(unsigned long long)supported);
+  }
+#endif
   return ConfigCheck(TRUE);
 }
 static EFI_STATUS BarCheck(VOID) {
